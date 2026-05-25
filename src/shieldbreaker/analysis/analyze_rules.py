@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 
 
+import argparse
 import json
 from pathlib import Path
 from typing import List, Dict, Tuple
@@ -138,14 +139,17 @@ def analyze_single_rule(rule: Dict) -> Dict:
 # ------------------------------------------------------------
 
 def main():
+    parser = argparse.ArgumentParser(description="Analyze extracted malware-to-EDR anomaly rules")
+    parser.add_argument("--input_file", default="runs/rule.jsonl", help="Input rule JSONL file")
+    parser.add_argument("--output_file", default="runs/rule_analysis.jsonl", help="Output analysis JSONL file")
+    args = parser.parse_args()
+
     print("=" * 70)
     print("Rule Analysis Tool (Stable Co-occurring Subsequence Version)")
     print("=" * 70)
 
-    input_file = "rule_faclon.jsonl"
-    output_file = "rule_faclon_analysis.jsonl"
-    # input_file = "rule_wd.jsonl"
-    # output_file = "rule_wd_analysis.jsonl"
+    input_file = args.input_file
+    output_file = args.output_file
 
     print(f"\nInput file:  {input_file}")
     print(f"Output file: {output_file}")
@@ -187,6 +191,7 @@ def main():
         analyzed_rules.append(analyze_single_rule(rule))
 
     # Write output file
+    Path(output_file).parent.mkdir(parents=True, exist_ok=True)
     with open(output_file, 'w', encoding='utf-8') as f:
         f.write(json.dumps({
             'type': 'global_statistics',

@@ -11,7 +11,7 @@ from transformers import AutoTokenizer, GPT2LMHeadModel
 
 def main():
     parser = argparse.ArgumentParser(description="GPT2 Model Inference")
-    parser.add_argument("--model_path", type=str, default="models/out_gpt2_xl", help="Path to trained model")
+    parser.add_argument("--model_path", type=str, default="models/out_gpt2", help="Path to trained model")
     parser.add_argument("--tokenizer_path", type=str, default="datasets/lm_data", help="Path to tokenizer")
     parser.add_argument("--prompt", type=str, default="<BOS> <PROC:msmpeng.exe>", help="Input prompt")
     parser.add_argument("--max_length", type=int, default=100, help="Maximum generation length")

@@ -125,9 +125,9 @@ def build_vocab(token_seqs: List[List[str]]) -> Dict[str, int]:
 
 def main():
     parser = argparse.ArgumentParser(description="Build token sequences and vocabulary from EDR JSONL logs")
-    parser.add_argument("--input_path", type=str, default="datasets/main/baseline/edr_only.jsonl", help="Input JSONL file")
-    parser.add_argument("--out_tokens_path", type=str, default="datasets/main/baseline/tokens.jsonl", help="Output tokens JSONL file")
-    parser.add_argument("--out_vocab_path", type=str, default="datasets/main/baseline/vocab.json", help="Output vocab JSON file")
+    parser.add_argument("--input_path", type=str, default="datasets/baseline/edr_only.jsonl", help="Input JSONL file")
+    parser.add_argument("--out_tokens_path", type=str, default="datasets/baseline/tokens.jsonl", help="Output tokens JSONL file")
+    parser.add_argument("--out_vocab_path", type=str, default="datasets/baseline/vocab.json", help="Output vocab JSON file")
     parser.add_argument("--processes", nargs="+", default=sorted(DEFAULT_TARGET_PROCS), help="Target process names")
     args = parser.parse_args()
 

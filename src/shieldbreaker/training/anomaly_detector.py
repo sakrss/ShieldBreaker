@@ -190,7 +190,7 @@ def build_sequences_from_api_calls(api_sequences: List[List[str]], process: str)
 
 def main():
     parser = argparse.ArgumentParser(description="EDR API Sequence Anomaly Detector with Automatic Threshold Learning")
-    parser.add_argument("--model_path", type=str, default="models/out_gpt2_xl", help="Model path")
+    parser.add_argument("--model_path", type=str, default="models/out_gpt2", help="Model path")
     parser.add_argument("--tokenizer_path", type=str, default=None, help="Tokenizer path (optional)")
     parser.add_argument("--process", type=str, default="msmpeng.exe", help="Process name")
     parser.add_argument("--device", type=str, default=None, help="Device: cuda or cpu")

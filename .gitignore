@@ -30,20 +30,11 @@ Thumbs.db
 tmp/
 temp/
 wandb/
-docs/*snapshot*.txt
 
-# Large local artifacts. Keep only README placeholders in Git.
+# Large local artifacts
 datasets/*
-!datasets/README.md
-!datasets/.gitkeep
-
 models/*
-!models/README.md
-!models/.gitkeep
-
 runs/*
-!runs/README.md
-!runs/.gitkeep
 
 # Model/checkpoint binaries
 *.bin

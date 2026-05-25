@@ -1,6 +1,7 @@
 ﻿#!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import argparse
 import json
 import sys
 from pathlib import Path
@@ -450,26 +451,45 @@ def load_vocab(vocab_path: str) -> Dict[str, int]:
 # ----------------------------------------------------------------------
 
 def main():
+    global EDR_PROCESSES, ANOMALY_TARGET_EDR_PROCESSES
+
+    parser = argparse.ArgumentParser(description="Extract malware behavior to EDR anomaly rules")
+    parser.add_argument("--model_path", default="models/out_gpt2", help="Trained GPT model directory")
+    parser.add_argument("--vocab_path", default="datasets/baseline/vocab.json", help="Training vocabulary JSON")
+    parser.add_argument("--processed_dir", default="datasets/stimulated/processed", help="Processed stimulated JSONL directory")
+    parser.add_argument("--output_file", default="runs/rule.jsonl", help="Output rule JSONL file")
+    parser.add_argument("--threshold", type=float, default=10.50, help="Token NLL threshold")
+    parser.add_argument("--max_seq_len", type=int, default=1024, help="Maximum model input length")
+    parser.add_argument("--device", default=None, help="Torch device, e.g. cuda or cpu")
+    parser.add_argument("--edr_processes", nargs="+", default=EDR_PROCESSES, help="EDR process names")
+    parser.add_argument(
+        "--target_edr_processes",
+        nargs="+",
+        default=sorted(ANOMALY_TARGET_EDR_PROCESSES),
+        help="EDR process names to score for anomalies",
+    )
+    args = parser.parse_args()
+
+    EDR_PROCESSES = args.edr_processes
+    ANOMALY_TARGET_EDR_PROCESSES = set(args.target_edr_processes)
+
     print("=" * 60)
     print("EDR + Malware Anomaly Rule Extraction Tool (Sliding Window Version)")
     print("=" * 60)
 
-    model_path = "models/out_gpt2_xl"
-    vocab_path = "datasets/main/baseline/vocab.json"
-    processed_dir = "datasets/main/stimulated/processed"
-    output_dir = "."
-    rule_file = Path(output_dir) / "rule.jsonl"
-
-    threshold = 10.50
-    window_size = 10  # Deprecated, kept for compatibility
+    model_path = args.model_path
+    vocab_path = args.vocab_path
+    processed_dir = args.processed_dir
+    rule_file = Path(args.output_file)
+    rule_file.parent.mkdir(parents=True, exist_ok=True)
 
     print("\nConfiguration:")
     print(f"  Model path: {model_path}")
     print(f"  Vocabulary path: {vocab_path}")
     print(f"  Data directory: {processed_dir}")
     print(f"  Output file: {rule_file}")
-    print(f"  Anomaly threshold: {threshold}")
-    print(f"  Sliding window: 1022 APIs (model max 1024 tokens)")
+    print(f"  Anomaly threshold: {args.threshold}")
+    print(f"  Sliding window: {args.max_seq_len - 2} APIs (model max {args.max_seq_len} tokens)")
     print("-" * 60)
 
     print("\n[Load] Loading vocabulary...")
@@ -482,7 +502,7 @@ def main():
 
     print("\n[Init] Loading anomaly detection model...")
     try:
-        detector = EDRAnomalyDetector(model_path)
+        detector = EDRAnomalyDetector(model_path, device=args.device)
         print(f"  Device: {detector.device}")
     except Exception as e:
         print(f"Error: failed to load model - {e}")
@@ -529,8 +549,8 @@ def main():
                 detector,
                 sequences,
                 vocab,
-                threshold=threshold,
-                max_seq_len=1024,
+                threshold=args.threshold,
+                max_seq_len=args.max_seq_len,
                 inference_stats=inference_stats
             )
 

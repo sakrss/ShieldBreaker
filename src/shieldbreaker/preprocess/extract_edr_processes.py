@@ -79,8 +79,8 @@ def iter_input_files(input_dir: str, pattern: str, recursive: bool):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Extract EDR process records from JSONL-style logs")
-    parser.add_argument("--input_dir", type=str, default="datasets/main/baseline", help="Input directory")
-    parser.add_argument("--output_file", type=str, default="datasets/main/baseline/edr_only.jsonl", help="Output JSONL file")
+    parser.add_argument("--input_dir", type=str, default="datasets/baseline", help="Input directory")
+    parser.add_argument("--output_file", type=str, default="datasets/baseline/edr_only.jsonl", help="Output JSONL file")
     parser.add_argument("--pattern", type=str, default="*.jsonl", help="Input filename pattern, e.g. *.jsonl or drakvuf.json")
     parser.add_argument("--recursive", action="store_true", help="Recursively search input_dir")
     parser.add_argument("--processes", nargs="+", default=DEFAULT_EDR_PROCESSES, help="Target EDR process names")

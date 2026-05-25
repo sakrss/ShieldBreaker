@@ -119,7 +119,7 @@ def build_wordlevel_tokenizer(vocab: dict, tokenizer_json_path: str):
     """
     model = WordLevel(vocab=vocab, unk_token="<UNK>")
     tok = Tokenizer(model)
-    # Preserve tokens such as <PROC:elastic-endpoint.exe> as single units.
+    # Preserve process tokens such as <PROC:msmpeng.exe> as single units.
     tok.pre_tokenizer = WhitespaceSplit()
 
     tok.post_processor = TemplateProcessing(
@@ -134,8 +134,8 @@ def build_wordlevel_tokenizer(vocab: dict, tokenizer_json_path: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Build tokenizer files and train/valid corpus from token sequences")
-    parser.add_argument("--tokens_path", type=str, default="datasets/main/baseline/tokens.jsonl", help="Input tokens JSONL file")
-    parser.add_argument("--vocab_path", type=str, default="datasets/main/baseline/vocab.json", help="Input vocabulary JSON file")
+    parser.add_argument("--tokens_path", type=str, default="datasets/baseline/tokens.jsonl", help="Input tokens JSONL file")
+    parser.add_argument("--vocab_path", type=str, default="datasets/baseline/vocab.json", help="Input vocabulary JSON file")
     parser.add_argument("--out_dir", type=str, default="datasets/lm_data", help="Output directory")
     parser.add_argument("--valid_ratio", type=float, default=0.05, help="Validation split ratio")
     parser.add_argument("--seed", type=int, default=42, help="Random seed for shuffling")

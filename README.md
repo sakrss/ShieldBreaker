@@ -1,79 +1,154 @@
-﻿# ShieldBreaker
+# ShieldBreaker
 
-ShieldBreaker detects anomalous EDR behavior from API traces. It learns a baseline
-language model over normal EDR API-call sequences, scores EDR behavior under
-malicious stimulation, and extracts behavior-to-reaction rules.
+ShieldBreaker detects abnormal EDR reactions from API traces. It learns a normal
+EDR behavior baseline with a GPT-style language model, scores EDR API calls in
+malware-stimulated traces, and extracts association rules of the form:
 
-This repository is organized as a GitHub-ready source-code project. Large local
-datasets, trained models, and experiment outputs are intentionally excluded from
-Git.
+```text
+malware API pattern -> anomalous EDR API
+```
+
+The repository is intentionally source-only. Raw traces, trained checkpoints,
+generated corpora, and rule outputs are local artifacts and are ignored by Git.
 
 ## Repository Layout
 
 ```text
 src/shieldbreaker/
-  analysis/      anomaly detection, NLL export, plotting, rule extraction
-  preprocess/    trace filtering, tokenization, vocabulary builders
-  training/      corpus builders, model training, inference scripts
-  tools/         standalone utilities
-docs/            method notes and repository maintenance docs
-examples/        command examples
-datasets/        local data placeholder, ignored by Git
-models/          local model placeholder, ignored by Git
-runs/            local experiment-output placeholder, ignored by Git
+  preprocess/
+    extract_edr_processes.py       filter baseline EDR events
+    extract_malware_processes.py   filter stimulated EDR + malware events
+    build_vocab.py                 build token sequences and vocabulary
+  training/
+    make_tokenizer_and_corpus.py   build tokenizer, train.txt, valid.txt
+    train_gpt2.py                  train the EDR baseline language model
+    anomaly_detector.py            GPT NLL scoring helper
+    inference.py                   simple generation/debug entry point
+  analysis/
+    extract_anomaly_rules.py       detect anomalous EDR calls and build rules
+    analyze_rules.py               summarize extracted rules
+  tools/
+    unzip.py                       unzip .gz trace files
 ```
-
-See [docs/repository_layout.md](docs/repository_layout.md) and
-[docs/github_upload.md](docs/github_upload.md) for more details.
 
 ## Installation
 
 Python 3.10+ is recommended.
 
-```powershell
+```bash
 python -m venv .venv
-.\.venv\Scripts\activate
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Install a CUDA-enabled PyTorch build if GPU training or inference is required.
+Install a CUDA-enabled PyTorch build separately if GPU training or inference is
+needed.
+
+## Data Format
+
+Input traces are newline-delimited JSON records. The core scripts expect these
+fields:
+
+```json
+{
+  "TimeStamp": 1234567890.123,
+  "ProcessName": "\\Device\\HarddiskVolume2\\Windows\\System32\\MsMpEng.exe",
+  "Method": "NtOpenKey",
+  "Plugin": "syscall"
+}
+```
+
+`Plugin == "sysret"` records are ignored. Baseline logs should contain normal
+EDR execution. Stimulated logs should contain both EDR behavior and the malware
+sample process. By default, the scripts target Windows Defender process names;
+pass `--processes` or `--edr_processes` for other EDR products.
 
 ## Typical Workflow
 
-1. Place raw DRAKVUF traces under `datasets/main/` or experiment outputs under
-   `runs/`.
-2. Extract EDR-only events and build token/vocabulary files.
-3. Build tokenizer and train/validation corpora under `datasets/lm_data*`.
-4. Train GPT, LSTM, N-gram, TCN, or Transformer baselines into `models/`.
-5. Score stimulated traces and write reports under `runs/generated/`.
-6. Localize multi-scale anomalies and extract behavior rules.
+Create local artifact directories:
 
-Example commands are available in [examples/README.md](examples/README.md).
-
-## Multi-Scale Anomaly Localization
-
-`src/shieldbreaker/analysis/localize_multiscale_anomalies.py` implements adaptive
-multi-scale localization:
-
-```powershell
-python src\shieldbreaker\analysis\localize_multiscale_anomalies.py `
-  --product elastic `
-  --baseline datasets\main\baseline_sample\gpt2_medium_event_nll_sequence.json `
-  --stimulated datasets\main\stimulated_sample\gpt2_medium_event_nll_sequence.json `
-  --output_json runs\generated\elastic_multiscale_anomalies.json
+```bash
+mkdir -p datasets/baseline datasets/stimulated datasets/lm_data models runs
 ```
 
-The script estimates a product-specific threshold from baseline event-level NLL
-sequences and reports anomaly points/clusters for stimulated traces.
+Extract baseline EDR events:
 
-## Data And Artifact Policy
+```bash
+python src/shieldbreaker/preprocess/extract_edr_processes.py \
+  --input_dir datasets/baseline/raw \
+  --pattern drakvuf.json \
+  --recursive \
+  --output_file datasets/baseline/edr_only.jsonl \
+  --processes NisSrv.exe MsMpEng.exe SecurityHealthService.exe SecurityHealthSystray.exe
+```
 
-The following folders are local-only and ignored by Git:
+Build API tokens and vocabulary:
+
+```bash
+python src/shieldbreaker/preprocess/build_vocab.py \
+  --input_path datasets/baseline/edr_only.jsonl \
+  --out_tokens_path datasets/baseline/tokens.jsonl \
+  --out_vocab_path datasets/baseline/vocab.json
+```
+
+Build the tokenizer and language-model corpus:
+
+```bash
+python src/shieldbreaker/training/make_tokenizer_and_corpus.py \
+  --tokens_path datasets/baseline/tokens.jsonl \
+  --vocab_path datasets/baseline/vocab.json \
+  --out_dir datasets/lm_data
+```
+
+Train the GPT baseline:
+
+```bash
+python src/shieldbreaker/training/train_gpt2.py \
+  --model_name_or_path gpt2 \
+  --tokenizer_name datasets/lm_data \
+  --train_file datasets/lm_data/train.txt \
+  --validation_file datasets/lm_data/valid.txt \
+  --output_dir models/out_gpt2 \
+  --do_train \
+  --do_eval
+```
+
+Prepare stimulated traces. Each `.log` filename is interpreted as the malware
+sample name and converted to a malware process name with `.exe` suffix.
+
+```bash
+python src/shieldbreaker/preprocess/extract_malware_processes.py \
+  --input_dir datasets/stimulated/raw \
+  --output_dir datasets/stimulated/processed \
+  --edr_processes NisSrv.exe MsMpEng.exe SecurityHealthService.exe SecurityHealthSystray.exe
+```
+
+Extract anomaly rules:
+
+```bash
+python src/shieldbreaker/analysis/extract_anomaly_rules.py \
+  --model_path models/out_gpt2 \
+  --vocab_path datasets/baseline/vocab.json \
+  --processed_dir datasets/stimulated/processed \
+  --output_file runs/rule.jsonl \
+  --threshold 10.5
+```
+
+Analyze extracted rules:
+
+```bash
+python src/shieldbreaker/analysis/analyze_rules.py \
+  --input_file runs/rule.jsonl \
+  --output_file runs/rule_analysis.jsonl
+```
+
+## Artifact Policy
+
+Keep these paths local:
 
 - `datasets/`
 - `models/`
 - `runs/`
 
-Only their README placeholders are committed. Store large traces, checkpoints,
-and result matrices in external artifact storage instead of GitHub.
-
+Do not commit raw DRAKVUF traces, generated JSONL corpora, model checkpoints, or
+rule output files.
