@@ -1,0 +1,2 @@
+﻿"""ShieldBreaker source package."""
+

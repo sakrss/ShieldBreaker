@@ -1,4 +1,4 @@
-# GitHub Upload Checklist
+﻿# GitHub Upload Checklist
 
 This repository is now organized as a code-first GitHub project.
 
@@ -19,7 +19,7 @@ This repository is now organized as a code-first GitHub project.
 
 ## Suggested GitHub Contents
 
-- `src/leakedr/` - source code
+- `src/shieldbreaker/` - source code
 - `docs/` - method notes and repository layout
 - `examples/` - reproducible command examples
 - `datasets/README.md` - data placement guide

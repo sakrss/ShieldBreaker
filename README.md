@@ -1,6 +1,6 @@
-# LeakEDR
+﻿# ShieldBreaker
 
-LeakEDR detects anomalous EDR behavior from API traces. It learns a baseline
+ShieldBreaker detects anomalous EDR behavior from API traces. It learns a baseline
 language model over normal EDR API-call sequences, scores EDR behavior under
 malicious stimulation, and extracts behavior-to-reaction rules.
 
@@ -11,7 +11,7 @@ Git.
 ## Repository Layout
 
 ```text
-src/leakedr/
+src/shieldbreaker/
   analysis/      anomaly detection, NLL export, plotting, rule extraction
   preprocess/    trace filtering, tokenization, vocabulary builders
   training/      corpus builders, model training, inference scripts
@@ -52,11 +52,11 @@ Example commands are available in [examples/README.md](examples/README.md).
 
 ## Multi-Scale Anomaly Localization
 
-`src/leakedr/analysis/localize_multiscale_anomalies.py` implements adaptive
+`src/shieldbreaker/analysis/localize_multiscale_anomalies.py` implements adaptive
 multi-scale localization:
 
 ```powershell
-python src\leakedr\analysis\localize_multiscale_anomalies.py `
+python src\shieldbreaker\analysis\localize_multiscale_anomalies.py `
   --product elastic `
   --baseline datasets\main\baseline_sample\gpt2_medium_event_nll_sequence.json `
   --stimulated datasets\main\stimulated_sample\gpt2_medium_event_nll_sequence.json `

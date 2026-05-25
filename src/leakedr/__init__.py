@@ -1,2 +1,0 @@
-"""LeakEDR source package."""
-

@@ -1,4 +1,4 @@
-# Migration Map
+﻿# Migration Map
 
 The original repository state was recorded before moving files. Snapshot text
 files remain local-only and are ignored by GitHub upload rules.
@@ -7,12 +7,12 @@ files remain local-only and are ignored by GitHub upload rules.
 
 | Old path | New path |
 | --- | --- |
-| `analysis/` | `src/leakedr/analysis/` |
-| `preprocess/` | `src/leakedr/preprocess/` |
-| `train/*.py`, `train/*.bat`, `train/*.ps1` | `src/leakedr/training/` |
-| `tools/` | `src/leakedr/tools/` |
-| `drakvuf_command_burst_locator.py` | `src/leakedr/tools/drakvuf_command_burst_locator.py` |
-| `extract_notepad_sysret.py` | `src/leakedr/tools/extract_notepad_sysret.py` |
+| `analysis/` | `src/shieldbreaker/analysis/` |
+| `preprocess/` | `src/shieldbreaker/preprocess/` |
+| `train/*.py`, `train/*.bat`, `train/*.ps1` | `src/shieldbreaker/training/` |
+| `tools/` | `src/shieldbreaker/tools/` |
+| `drakvuf_command_burst_locator.py` | `src/shieldbreaker/tools/drakvuf_command_burst_locator.py` |
+| `extract_notepad_sysret.py` | `src/shieldbreaker/tools/extract_notepad_sysret.py` |
 
 ## Data And Corpora
 

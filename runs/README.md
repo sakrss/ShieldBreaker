@@ -1,4 +1,4 @@
-# Runs
+﻿# Runs
 
 Experiment outputs, anomaly reports, matrices, Markdown summaries, and temporary
 run folders are stored here locally but are intentionally ignored by Git.

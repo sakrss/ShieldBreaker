@@ -1,11 +1,11 @@
-# Models
+﻿# Models
 
 Trained models, checkpoints, tokenizer caches, and pretrained weights are stored
 here locally but are intentionally ignored by Git.
 
 Suggested local layout:
 
-- `models/out_*` - trained LeakEDR model outputs
+- `models/out_*` - trained ShieldBreaker model outputs
 - `models/pretrained/` - downloaded pretrained model cache
 - `models/training_helpers/` - auxiliary local model resources
 
