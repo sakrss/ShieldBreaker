@@ -1,0 +1,64 @@
+# Python caches and build outputs
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# IDE and OS files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and temporary files
+*.log
+tmp/
+temp/
+wandb/
+docs/*snapshot*.txt
+
+# Large local artifacts. Keep only README placeholders in Git.
+datasets/*
+!datasets/README.md
+!datasets/.gitkeep
+
+models/*
+!models/README.md
+!models/.gitkeep
+
+runs/*
+!runs/README.md
+!runs/.gitkeep
+
+# Model/checkpoint binaries
+*.bin
+*.safetensors
+*.pt
+*.pth
+*.ckpt
+checkpoint-*/
+
+# Large trace/result files commonly produced by LeakEDR
+*.jsonl
+*_window_nll_full*.json
+*_window_nll_full*.csv
+*_event_nll_sequence*.json
+*_event_nll_sequence*.csv
+*_endpoint_anomaly_report_full.json
+*_endpoint_anomaly_points_only.json
+*_endpoint_anomaly_points_only.md
