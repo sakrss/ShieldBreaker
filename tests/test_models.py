@@ -2,7 +2,10 @@ import math
 import pytest
 import torch
 from transformers import GPT2Config, GPT2LMHeadModel
-from shieldbreaker.training.make_tokenizer_and_corpus import make_corpus
+from shieldbreaker.training.make_tokenizer_and_corpus import (
+    make_corpus,
+    segment_long_sequences,
+)
 from shieldbreaker.training.anomaly_detector import EDRAnomalyDetector
 from shieldbreaker.training.train_gpt2 import chunk_corpus
 from shieldbreaker.preprocess.build_vocab import build_vocab
@@ -65,6 +68,16 @@ def test_training_chunks_keep_short_executions_and_tail_tokens(tmp_path):
             build_vocab([["A", "B"]]),
             tmp_path / "bad",
         )
+
+
+def test_corpus_segmentation_rejects_non_api_tokens_instead_of_dropping_them():
+    assert segment_long_sequences([["<BOS>", "A", "B", "C", "<EOS>"]], 4) == [
+        ["<BOS>", "A", "B", "<EOS>"],
+        ["<BOS>", "C", "<EOS>"],
+    ]
+    for token in ("<PROC:edr.exe>", "<PAD>", "A B", "", None, [], {}):
+        with pytest.raises(ValueError, match="function-name tokens only"):
+            segment_long_sequences([["A", token, "B"]], 8)
 
 
 def test_lstm_roundtrip_and_sequence_boundary(tmp_path):

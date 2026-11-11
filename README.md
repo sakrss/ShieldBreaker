@@ -4,6 +4,9 @@ Differential characterization of endpoint-security runtime behavior. The analysi
 unit is a recurrent **behavior–anomaly temporal co-occurrence**, not an inferred
 vendor detection rule or a persistent cross-execution response identity.
 
+This implementation aligns the methods, parameters and workflows with the paper.
+Reproducing its historical numerical result cells is outside the alignment scope.
+
 ## Install
 
 Python 3.10+:
@@ -64,7 +67,9 @@ Input events retain the original DRAKVUF fields:
 {"TimeStamp": 1234.5, "ProcessName": "C:\\sensor.exe", "PID": 10, "TID": 11, "Method": "NtOpenFile", "Plugin": "syscall", "Arguments": {"FileName": "example.txt"}, "ReturnStatus": 0}
 ```
 
-`sysret` records are not additional API calls. Available return status/arguments
+`sysret` records are not additional API calls. Records without `Method` may
+establish process ancestry but never become API tokens. Malformed call records
+with a present `Method` are rejected. Available return status/arguments
 on call records are retained. Missing return metadata is not synthesized. PID/PPID
 links permit descendant selection; without those links, only explicitly named
 stimulus processes are observed. PID lifetime/reuse and instrumentation coverage
@@ -147,7 +152,12 @@ horizon is added to the commercial overlap criterion. Short traces without a
 complete window are explicitly marked `scoreable: false`.
 
 Outputs include `calibration.json`, `observations.jsonl`, `candidates.json`,
-`held_out_metrics.json`, `trace_scores.jsonl`, and `run_metadata.json`. A zero
+`held_out_metrics.json`, `trace_scores.jsonl`, `behavior_aligned_scores.jsonl`,
+`condition_summaries.json`, and `run_metadata.json`. `observations.jsonl` preserves
+every intersecting behavior-segment/cluster pair under `cooccurrences`; their
+indices are local to each execution. Aligned scores use window-start timestamps
+relative to each behavior end in one-second bins over [-30, 30) seconds, storing
+the bin-level p99.5 and leaving missing bins as `null`. A zero
 eligible-trace denominator produces JSON `null`, not zero. Re-running recomputes
 support rather than adding the same executions again.
 

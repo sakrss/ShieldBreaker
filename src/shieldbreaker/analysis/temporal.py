@@ -115,3 +115,29 @@ def localize(windows, threshold):
     intervals = [(window.start, window.end) for window in anomalous]
     tolerance = estimate_tolerance(intervals)
     return anomalous, merge_intervals(intervals, tolerance), tolerance
+
+
+def associate_behaviors(configuration, behaviors, clusters):
+    """Emit the within-execution observations o=(p,b,c) from Eqs. 1 and 6.
+
+    Segment and cluster indices are local to this one execution. They do not
+    define a commercial candidate key or a cross-execution response identity.
+    All intersecting pairs are retained; recurrence still counts one success
+    per candidate per execution rather than the number of pairs emitted here.
+    """
+    observations = []
+    for segment_index, segment in enumerate(behaviors):
+        interval = [segment["start"], segment["end"]]
+        for cluster_index, cluster in enumerate(clusters):
+            if temporal_overlap(interval, cluster):
+                observations.append(
+                    {
+                        "configuration": configuration,
+                        "behavior": segment["behavior"],
+                        "behavior_segment_index": segment_index,
+                        "cluster_index": cluster_index,
+                        "behavior_interval": interval,
+                        "cluster_interval": list(cluster),
+                    }
+                )
+    return observations

@@ -33,10 +33,12 @@ class Event:
     @classmethod
     def from_record(cls, record, index):
         timestamp = float(record["TimeStamp"])
-        function = str(record.get("Method", "")).strip()
+        function = record.get("Method")
         if (
             not math.isfinite(timestamp)
+            or not isinstance(function, str)
             or not function
+            or function.startswith("<")
             or any(c.isspace() for c in function)
         ):
             raise ValueError(
@@ -74,6 +76,10 @@ def events_from_records(records):
     for index, record in enumerate(records, 1):
         if record.get("Plugin") == "sysret":
             continue  # Return records are not additional API-call tokens.
+        if "Method" not in record:
+            # Lifecycle/observation metadata can establish PID/PPID ancestry,
+            # but it is not an API call and must not enter the token sequence.
+            continue
         try:
             events.append(Event.from_record(record, index))
         except (ValueError, TypeError, KeyError) as exc:

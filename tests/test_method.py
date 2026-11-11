@@ -6,6 +6,8 @@ from shieldbreaker.analysis.temporal import (
     merge_intervals,
     estimate_tolerance,
     temporal_overlap,
+    associate_behaviors,
+    Window,
 )
 from shieldbreaker.analysis.recurrence import (
     wilson_interval,
@@ -23,6 +25,7 @@ from shieldbreaker.analysis.evaluation import (
     variant_summary,
     paired_alert_comparison,
     holm_adjust,
+    relative_time_bins,
 )
 
 
@@ -66,6 +69,57 @@ def test_nested_windows_keep_furthest_endpoint():
     assert estimate_tolerance([[0, 10], [2, 3], [9, 12]]) == 0
     assert temporal_overlap([1, 2], [2, 3])
     assert not temporal_overlap([1, 2], [2.001, 3])
+
+
+def test_associations_preserve_all_closed_interval_pairs():
+    behaviors = [
+        {"behavior": "alpha", "start": 1, "end": 2},
+        {"behavior": "alpha", "start": 2, "end": 3},
+        {"behavior": "beta", "start": 5, "end": 6},
+    ]
+    clusters = [[0, 2], [2, 2.5], [4, 5], [7, 8]]
+    pairs = associate_behaviors("sensor / fixed policy", behaviors, clusters)
+    assert [(row["behavior_segment_index"], row["cluster_index"]) for row in pairs] == [
+        (0, 0),
+        (0, 1),
+        (1, 0),
+        (1, 1),
+        (2, 2),
+    ]
+    assert all(row["configuration"] == "sensor / fixed policy" for row in pairs)
+    assert pairs[0]["behavior_interval"] == [1, 2]
+    assert pairs[0]["cluster_interval"] == [0, 2]
+    assert not any("candidate_id" in row for row in pairs)
+    # Multiple overlapping pairs never become multiple recurrence votes.
+    candidates = estimate_recurrence(
+        [observation(i, behaviors, clusters) for i in range(9)]
+    )
+    assert {row["behavior"] for row in candidates} == {"alpha", "beta"}
+    assert all(row["successes"] == row["trials"] == 9 for row in candidates)
+
+
+def test_wall_clock_bins_align_window_anchors_to_behavior_end():
+    windows = [
+        Window(i, 256, score, start, start + 0.1)
+        for i, (start, score) in enumerate(
+            [
+                (69.99, 99),
+                (70, 1),
+                (99.99, 3),
+                (100, 5),
+                (100.5, 9),
+                (129.99, 7),
+                (130, 99),
+            ]
+        )
+    ]
+    bins = relative_time_bins(windows, behavior_end=100)
+    assert [row["relative_start"] for row in bins] == list(range(-30, 30))
+    populated = {
+        row["relative_start"]: row["p995"] for row in bins if row["p995"] is not None
+    }
+    assert populated == pytest.approx({-30: 1, -1: 3, 0: 8.98, 29: 7})
+    assert all(row["p995"] is None for row in relative_time_bins([], 100))
 
 
 def test_wilson_uses_unrounded_boundary_and_minimum_trials():
@@ -156,6 +210,24 @@ def test_pid_descendants_and_metadata_survive_partition():
     assert edr[0].function == "NtReadFile"
     with pytest.raises(ValueError, match="overlap"):
         partition_records(records, ["sample.exe"], ["sample.exe"])
+
+
+def test_lifecycle_records_supply_ancestry_without_becoming_api_tokens():
+    records = [
+        {"TimeStamp": 1, "ProcessName": "sample.exe", "PID": 2},
+        {"TimeStamp": 1.1, "ProcessName": "child.exe", "PID": 3, "PPID": 2},
+        {"TimeStamp": 2, "ProcessName": "child.exe", "PID": 3, "Method": "NtOpenFile"},
+        {"TimeStamp": 1, "ProcessName": "edr.exe", "PID": 1, "Method": "NtClose"},
+    ]
+    edr, stimulus = partition_records(records, ["edr.exe"], ["sample.exe"])
+    assert [(event.function, event.event_id) for event in edr] == [("NtClose", "4")]
+    assert [(event.function, event.event_id) for event in stimulus] == [
+        ("NtOpenFile", "3")
+    ]
+    assert stimulus[0].process_id == "3"
+    for invalid_method in (None, "", "Nt OpenFile", "<PROC:edr.exe>", 42):
+        with pytest.raises(ValueError, match="Invalid API record 1"):
+            events_from_records([{"TimeStamp": 1, "Method": invalid_method}])
 
 
 def test_semantics_require_grounded_time_and_evidence():

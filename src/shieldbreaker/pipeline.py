@@ -20,6 +20,7 @@ from shieldbreaker.analysis.temporal import (
     multiscale_windows,
     baseline_threshold,
     localize,
+    associate_behaviors,
 )
 from shieldbreaker.analysis.semantics import (
     validate_reconstruction,
@@ -27,7 +28,10 @@ from shieldbreaker.analysis.semantics import (
     PROMPT_ID,
 )
 from shieldbreaker.analysis.recurrence import estimate_recurrence, evaluate_held_out
-from shieldbreaker.analysis.evaluation import trace_distribution_summary
+from shieldbreaker.analysis.evaluation import (
+    trace_distribution_summary,
+    relative_time_bins,
+)
 
 
 def read_execution(row, manifest):
@@ -50,7 +54,7 @@ def read_execution(row, manifest):
 def run_analysis(
     manifest_path,
     output_dir,
-    model_kind="ngram",
+    model_kind="gpt2",
     model_path=None,
     config=AnalysisConfig(),
     device=None,
@@ -141,7 +145,7 @@ def run_analysis(
             "baseline_execution_ids": [row["execution_id"] for row in validation],
         },
     )
-    observations, distribution = [], []
+    observations, distribution, aligned_scores = [], [], []
     for row in traces:
         started = time.perf_counter()
         windows, stimulus, inference_seconds, api_events = score(row)
@@ -162,6 +166,9 @@ def run_analysis(
                     "configuration": manifest["configuration"],
                     "behaviors": behaviors,
                     "clusters": clusters,
+                    "cooccurrences": associate_behaviors(
+                        manifest["configuration"], behaviors, clusters
+                    ),
                     "anomalous_windows": [w.to_dict() for w in anomalous],
                     "interval_tolerance": tolerance,
                     "scoreable": bool(windows),
@@ -169,6 +176,21 @@ def run_analysis(
                     "unsupported_conclusions": annotation["unsupported_conclusions"],
                 }
             )
+            for segment_index, behavior in enumerate(behaviors):
+                aligned_scores.append(
+                    {
+                        "execution_id": row["execution_id"],
+                        "split": row["split"],
+                        "configuration": manifest["configuration"],
+                        "behavior": behavior["behavior"],
+                        "behavior_segment_index": segment_index,
+                        "behavior_end": behavior["end"],
+                        "time_unit": "seconds",
+                        "bin_width_seconds": 1.0,
+                        "window_time_projection": "start_timestamp",
+                        "bins": relative_time_bins(windows, behavior["end"]),
+                    }
+                )
         distribution.append(
             {
                 "execution_id": row["execution_id"],
@@ -202,6 +224,7 @@ def run_analysis(
     write_json(out / "candidates.json", candidates)
     write_json(out / "held_out_metrics.json", metrics)
     write_jsonl(out / "trace_scores.jsonl", distribution)
+    write_jsonl(out / "behavior_aligned_scores.jsonl", aligned_scores)
     write_json(
         out / "condition_summaries.json", trace_distribution_summary(distribution)
     )

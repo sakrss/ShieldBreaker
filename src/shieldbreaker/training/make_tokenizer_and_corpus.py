@@ -18,7 +18,20 @@ def segment_long_sequences(seqs, segment_length):
         raise ValueError("segment_length must leave space for BOS, an API, and EOS")
     chunks = []
     for sequence in seqs:
-        apis = [t for t in sequence if not t.startswith("<")]
+        apis = []
+        for token in sequence:
+            if isinstance(token, str) and token in {"<BOS>", "<EOS>"}:
+                continue
+            if (
+                not isinstance(token, str)
+                or not token
+                or token.startswith("<")
+                or any(char.isspace() for char in token)
+            ):
+                raise ValueError(
+                    "Corpus segments require API function-name tokens only"
+                )
+            apis.append(token)
         chunks.extend(
             [
                 ["<BOS>", *apis[start : start + segment_length - 2], "<EOS>"]

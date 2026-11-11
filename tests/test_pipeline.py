@@ -88,6 +88,29 @@ def test_complete_offline_pipeline(tmp_path):
         ]
         == 0.995
     )
+    observations = [
+        json.loads(line)
+        for line in (tmp_path / "results/observations.jsonl").read_text().splitlines()
+    ]
+    assert len(observations) == 10
+    assert all(len(row["cooccurrences"]) == 1 for row in observations)
+    pair = observations[-1]["cooccurrences"][0]
+    assert pair["behavior_interval"] == [1, 2]
+    assert pair["cluster_interval"] == [0, 2.55]
+    aligned = [
+        json.loads(line)
+        for line in (tmp_path / "results/behavior_aligned_scores.jsonl")
+        .read_text()
+        .splitlines()
+    ]
+    assert len(aligned) == 10
+    held_out = next(row for row in aligned if row["execution_id"] == "held-out")
+    assert held_out["split"] == "test" and held_out["behavior_end"] == 2
+    assert held_out["time_unit"] == "seconds"
+    assert held_out["window_time_projection"] == "start_timestamp"
+    assert len(held_out["bins"]) == 60
+    populated = [row for row in held_out["bins"] if row["p995"] is not None]
+    assert len(populated) == 1 and populated[0]["relative_start"] == -2
     # Re-running recomputes support; prior output cannot accumulate votes.
     assert run_analysis(manifest, tmp_path / "results", model_kind="ngram") == metrics
 
