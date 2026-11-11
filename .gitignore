@@ -44,7 +44,7 @@ runs/*
 *.ckpt
 checkpoint-*/
 
-# Large trace/result files commonly produced by LeakEDR
+# Large trace/result files commonly produced by ShieldBreaker
 *.jsonl
 *_window_nll_full*.json
 *_window_nll_full*.csv
@@ -53,3 +53,6 @@ checkpoint-*/
 *_endpoint_anomaly_report_full.json
 *_endpoint_anomaly_points_only.json
 *_endpoint_anomaly_points_only.md
+
+.pytest_cache/
+.coverage

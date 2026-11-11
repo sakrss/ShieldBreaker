@@ -1,195 +1,119 @@
-﻿#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Preserve the execution split; segment only after splitting (70:10:20)."""
+
 import argparse
 import json
-import random
+import hashlib
 from pathlib import Path
-
 from tokenizers import Tokenizer
 from tokenizers.models import WordLevel
 from tokenizers.pre_tokenizers import WhitespaceSplit
-from tokenizers.processors import TemplateProcessing
+from transformers import PreTrainedTokenizerFast
 
-SPECIAL_TOKENS = ["<PAD>", "<UNK>", "<BOS>", "<EOS>"]
-
-
-def load_tokens_jsonl(path: str):
-    """
-    Load token sequences from a JSONL file.
-    Each line is expected to be a JSON list of tokens.
-    """
-    seqs = []
-    with open(path, "r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            seq = json.loads(line)  # list[str]
-            seqs.append(seq)
-    return seqs
-
-def load_vocab(path: str):
-    """
-    Load vocabulary from JSON file. Returns token -> id mapping.
-    """
-    with open(path, "r", encoding="utf-8") as f:
-        vocab = json.load(f)
-    return vocab
-
-def ensure_special_tokens_in_vocab(vocab: dict):
-    """
-    Ensure that all required special tokens are present in the vocabulary.
-    """
-    for t in SPECIAL_TOKENS:
-        if t not in vocab:
-            vocab[t] = len(vocab)
-    return vocab
+from shieldbreaker.preprocess.build_vocab import SPECIAL_TOKENS
+from shieldbreaker.traces import write_json
 
 
-def segment_long_sequences(seqs, segment_length: int):
-    """
-    If the corpus contains one very long sequence, split it into fixed-size
-    segments so train/validation can be separated meaningfully.
-    """
-    if segment_length <= 0:
-        return seqs
-
-    segmented = []
-    for seq in seqs:
-        proc_tokens = [token for token in seq if token.startswith("<PROC:")]
-        is_single_process_seq = (
-            len(seq) >= 2 and
-            seq[0] == "<BOS>" and
-            seq[1].startswith("<PROC:") and
-            len(set(proc_tokens)) == 1
+def segment_long_sequences(seqs, segment_length):
+    if segment_length < 3:
+        raise ValueError("segment_length must leave space for BOS, an API, and EOS")
+    chunks = []
+    for sequence in seqs:
+        apis = [t for t in sequence if not t.startswith("<")]
+        chunks.extend(
+            [
+                ["<BOS>", *apis[start : start + segment_length - 2], "<EOS>"]
+                for start in range(0, len(apis), segment_length - 2)
+            ]
         )
+    return chunks
 
-        if len(seq) <= segment_length:
-            segmented.append(seq)
-            continue
 
-        if is_single_process_seq:
-            prefix = seq[:2]
-            suffix = ["<EOS>"] if seq[-1] == "<EOS>" else []
-            body = seq[2:-1] if suffix else seq[2:]
-            chunk_body_len = segment_length - len(prefix) - len(suffix)
-
-            if chunk_body_len < 1:
-                raise ValueError("segment_length is too small to preserve BOS/PROC context")
-
-            for start in range(0, len(body), chunk_body_len):
-                body_chunk = body[start:start + chunk_body_len]
-                chunk = prefix + body_chunk + suffix
-                if len(chunk) >= len(prefix) + 1:
-                    segmented.append(chunk)
-            continue
-
-        for start in range(0, len(seq), segment_length):
-            chunk = seq[start:start + segment_length]
-            if len(chunk) >= 2:
-                segmented.append(chunk)
-
-    return segmented
-
-def save_corpus(seqs, out_train: str, out_valid: str, valid_ratio: float = 0.05, seed: int = 42):
-    """
-    Shuffle and split sequences into training and validation sets, then save to files.
-    """
-    random.seed(seed)
-    random.shuffle(seqs)
-    n_valid = max(1, int(len(seqs) * valid_ratio)) if len(seqs) > 1 else 0
-
-    valid = seqs[:n_valid]
-    train = seqs[n_valid:] if n_valid > 0 else seqs
-
-    def write_txt(path, data):
-        with open(path, "w", encoding="utf-8") as f:
-            for seq in data:
-                f.write(" ".join(seq) + "\n")
-
-    write_txt(out_train, train)
-    if n_valid > 0:
-        write_txt(out_valid, valid)
-    else:
-        write_txt(out_valid, train)
-
-def build_wordlevel_tokenizer(vocab: dict, tokenizer_json_path: str):
-    """
-    Build and save a WordLevel tokenizer using provided vocabulary.
-    """
-    model = WordLevel(vocab=vocab, unk_token="<UNK>")
-    tok = Tokenizer(model)
-    # Preserve process tokens such as <PROC:msmpeng.exe> as single units.
-    tok.pre_tokenizer = WhitespaceSplit()
-
-    tok.post_processor = TemplateProcessing(
-        single="$A",
-        pair="$A $B",
-        special_tokens=[("<BOS>", vocab["<BOS>"]), ("<EOS>", vocab["<EOS>"])]
+def build_wordlevel_tokenizer(vocab, tokenizer_json_path):
+    if sorted(vocab.values()) != list(range(len(vocab))) or not all(
+        token in vocab for token in SPECIAL_TOKENS
+    ):
+        raise ValueError(
+            "Vocabulary must have contiguous IDs and all four special tokens"
+        )
+    core = Tokenizer(WordLevel(vocab, unk_token="<UNK>"))
+    core.pre_tokenizer = WhitespaceSplit()
+    core.save(str(tokenizer_json_path))
+    return PreTrainedTokenizerFast(
+        tokenizer_object=core,
+        pad_token="<PAD>",
+        unk_token="<UNK>",
+        bos_token="<BOS>",
+        eos_token="<EOS>",
+        model_max_length=1024,
     )
 
-    tok.save(tokenizer_json_path)
 
+def make_corpus(rows, vocab, out_dir, segment_length=1024):
+    ids = [row["execution_id"] for row in rows]
+    if len(ids) != len(set(ids)):
+        raise ValueError("Duplicate executions in token corpus")
+    if any(row["split"] not in {"discovery", "validation", "test"} for row in rows):
+        raise ValueError("Unknown split")
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    for split, filename in [
+        ("discovery", "train.txt"),
+        ("validation", "valid.txt"),
+        ("test", "test.txt"),
+    ]:
+        sequences = [row["tokens"] for row in rows if row["split"] == split]
+        if not sequences:
+            raise ValueError(
+                f"Empty {split} split; do not reuse training data as validation"
+            )
+        chunks = segment_long_sequences(sequences, segment_length)
+        (out_dir / filename).write_text(
+            "".join(" ".join(chunk) + "\n" for chunk in chunks), encoding="utf-8"
+        )
+    observed = {
+        token for row in rows if row["split"] == "discovery" for token in row["tokens"]
+    }
+    if set(vocab) - set(SPECIAL_TOKENS) != observed:
+        raise ValueError(
+            "Vocabulary must be fitted exclusively on discovery executions"
+        )
+    tokenizer = build_wordlevel_tokenizer(vocab, out_dir / "tokenizer.json")
+    tokenizer.save_pretrained(out_dir)
+    write_json(
+        out_dir / "corpus_hashes.json",
+        {
+            name: hashlib.sha256((out_dir / name).read_bytes()).hexdigest()
+            for name in ("train.txt", "valid.txt", "test.txt")
+        },
+    )
+    write_json(
+        out_dir / "split_manifest.json",
+        [{k: row[k] for k in ("execution_id", "split")} for row in rows],
+    )
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build tokenizer files and train/valid corpus from token sequences")
-    parser.add_argument("--tokens_path", type=str, default="datasets/baseline/tokens.jsonl", help="Input tokens JSONL file")
-    parser.add_argument("--vocab_path", type=str, default="datasets/baseline/vocab.json", help="Input vocabulary JSON file")
-    parser.add_argument("--out_dir", type=str, default="datasets/lm_data", help="Output directory")
-    parser.add_argument("--valid_ratio", type=float, default=0.05, help="Validation split ratio")
-    parser.add_argument("--seed", type=int, default=42, help="Random seed for shuffling")
-    parser.add_argument("--segment_length", type=int, default=4096, help="Split long token sequences into fixed-size segments before train/valid split")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--tokens_path", required=True)
+    parser.add_argument("--vocab_path", required=True)
+    parser.add_argument("--out_dir", required=True)
+    parser.add_argument("--segment_length", type=int, default=1024)
     args = parser.parse_args()
+    rows = [
+        json.loads(line)
+        for line in Path(args.tokens_path).read_text(encoding="utf-8-sig").splitlines()
+        if line.strip()
+    ]
+    if not rows or not all(
+        isinstance(row, dict) and {"execution_id", "split", "tokens"} <= row.keys()
+        for row in rows
+    ):
+        raise ValueError(
+            "Use execution-preserving build_vocab output, not a merged/segmented legacy corpus"
+        )
+    vocab = json.loads(Path(args.vocab_path).read_text(encoding="utf-8-sig"))
+    make_corpus(rows, vocab, args.out_dir, args.segment_length)
 
-    tokens_path = args.tokens_path
-    vocab_path = args.vocab_path
-
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-
-    seqs = load_tokens_jsonl(tokens_path)
-    seqs = segment_long_sequences(seqs, args.segment_length)
-    vocab = ensure_special_tokens_in_vocab(load_vocab(vocab_path))
-
-
-    train_txt = str(out_dir / "train.txt")
-    valid_txt = str(out_dir / "valid.txt")
-    save_corpus(seqs, train_txt, valid_txt, valid_ratio=args.valid_ratio, seed=args.seed)
-
-
-    tokenizer_json = str(out_dir / "tokenizer.json")
-    build_wordlevel_tokenizer(vocab, tokenizer_json)
-
-
-    tokenizer_cfg = {
-        "model_max_length": 1024,
-        "unk_token": "<UNK>",
-        "bos_token": "<BOS>",
-        "eos_token": "<EOS>",
-        "pad_token": "<PAD>"
-    }
-    with open(out_dir / "tokenizer_config.json", "w", encoding="utf-8") as f:
-        json.dump(tokenizer_cfg, f, ensure_ascii=False, indent=2)
-
-    special_tokens_map = {
-        "unk_token": "<UNK>",
-        "bos_token": "<BOS>",
-        "eos_token": "<EOS>",
-        "pad_token": "<PAD>"
-    }
-    with open(out_dir / "special_tokens_map.json", "w", encoding="utf-8") as f:
-        json.dump(special_tokens_map, f, ensure_ascii=False, indent=2)
-
-    # Summary
-    print("[OK] Written files:")
-    print(" -", train_txt)
-    print(" -", valid_txt)
-    print(" -", tokenizer_json)
-    print(" -", str(out_dir / "tokenizer_config.json"))
-    print(" -", str(out_dir / "special_tokens_map.json"))
-    print("[INFO] Number of sequences =", len(seqs), "Vocabulary size =", len(vocab))
 
 if __name__ == "__main__":
     main()
