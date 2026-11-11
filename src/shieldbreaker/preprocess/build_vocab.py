@@ -1,168 +1,99 @@
-﻿#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
+"""Build API-only tokens and split independent executions before fitting vocab."""
 
 import argparse
-import json
-import re
-import sys
-from dataclasses import dataclass
-from typing import Dict, List, Optional
+from collections import defaultdict
+from pathlib import Path
+import random
 
-# =========================
-# Target processes (normalized to lowercase)
-# =========================
-DEFAULT_TARGET_PROCS = {
-    "nissrv.exe",
-    "msmpeng.exe",
-    "securityhealthservice.exe",
-    "securityhealthsystray.exe",
-}
+from shieldbreaker.traces import (
+    events_from_records,
+    process_name,
+    read_records,
+    write_json,
+    write_jsonl,
+)
 
-# Special tokens
-BOS = "<BOS>"
-EOS = "<EOS>"
-UNK = "<UNK>"
-PAD = "<PAD>"
+SPECIAL_TOKENS = ["<PAD>", "<UNK>", "<BOS>", "<EOS>"]
 
 
-PROC_PREFIX = "<PROC:"
-PROC_SUFFIX = ">"
-
-@dataclass
-class Event:
-    ts: float
-    proc: str    
-    method: str
-
-
-def normalize_proc_name(process_name: Optional[str]) -> str:
-    """
-    Input:
-        \\Device\\HarddiskVolume2\\Windows\\System32\\SecurityHealthService.exe
-    Output:
-        securityhealthservice.exe
-    """
-    if not process_name:
-        return "unknown.exe"
-    # Support both '\' and '/'
-    name = process_name.replace("\\", "/").split("/")[-1]
-    return name.strip().lower()
+def split_executions(execution_ids, seed=42):
+    ids = sorted(execution_ids)
+    if len(set(ids)) != len(ids):
+        raise ValueError("Execution IDs must be unique")
+    if len(ids) < 10:
+        raise ValueError(
+            "At least ten independent executions are needed for a 70:10:20 split"
+        )
+    random.Random(seed).shuffle(ids)
+    train_end, valid_end = int(0.7 * len(ids)), int(0.8 * len(ids))
+    return {
+        execution_id: (
+            "discovery" if i < train_end else "validation" if i < valid_end else "test"
+        )
+        for i, execution_id in enumerate(ids)
+    }
 
 
-def normalize_method(method: Optional[str]) -> str:
-    """
-    Normalize Method token with minimal cleaning.
-    """
-    if not method:
-        return "UnknownMethod"
-    m = method.strip()
-    m = re.sub(r"\s+", "", m)
-    return m
-
-
-def make_proc_token(proc: str) -> str:
-    return f"{PROC_PREFIX}{proc}{PROC_SUFFIX}"
-
-
-def read_events(jsonl_path: str, target_procs: set[str]) -> List[Event]:
-    """
-    Read JSONL file, filter by target processes,
-    and extract (TimeStamp, ProcessName, Method).
-    """
-    events: List[Event] = []
-    with open(jsonl_path, "r", encoding="utf-8") as f:
-        for line_no, line in enumerate(f, 1):
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                ts = float(obj.get("TimeStamp"))
-                proc = normalize_proc_name(obj.get("ProcessName"))
-                if proc not in target_procs:
-                    continue
-                method = normalize_method(obj.get("Method"))
-                events.append(Event(ts=ts, proc=proc, method=method))
-            except Exception:
-                # Skip malformed lines silently (print line_no for debugging if needed)
-                continue
-
-
-    events.sort(key=lambda e: e.ts)
-    return events
-
-
-def build_token_sequence(events: List[Event]) -> List[str]:
-    """
-    Strategy 2: <PROC_*> + Method sequence
-    - Start with BOS, end with EOS
-    - Insert <PROC:proc.exe> whenever the process changes
-    """
-    tokens: List[str] = [BOS]
-    last_proc: Optional[str] = None
-
-    for ev in events:
-        if ev.proc != last_proc:
-            tokens.append(make_proc_token(ev.proc))
-            last_proc = ev.proc
-        tokens.append(ev.method)
-
-    tokens.append(EOS)
-    return tokens
-
-
-def build_vocab(token_seqs: List[List[str]]) -> Dict[str, int]:
-    """
-    Build vocabulary: token -> id
-    """
-    vocab: Dict[str, int] = {PAD: 0, UNK: 1}
-    for seq in token_seqs:
-        for t in seq:
-            if t not in vocab:
-                vocab[t] = len(vocab)
-    return vocab
+def build_vocab(token_seqs):
+    vocabulary = {token: index for index, token in enumerate(SPECIAL_TOKENS)}
+    for token in sorted({token for sequence in token_seqs for token in sequence}):
+        if token.startswith("<") or any(ch.isspace() for ch in token):
+            raise ValueError(
+                "API vocabulary cannot contain process/argument/boundary tokens"
+            )
+        vocabulary.setdefault(token, len(vocabulary))
+    return vocabulary
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Build token sequences and vocabulary from EDR JSONL logs")
-    parser.add_argument("--input_path", type=str, default="datasets/baseline/edr_only.jsonl", help="Input JSONL file")
-    parser.add_argument("--out_tokens_path", type=str, default="datasets/baseline/tokens.jsonl", help="Output tokens JSONL file")
-    parser.add_argument("--out_vocab_path", type=str, default="datasets/baseline/vocab.json", help="Output vocab JSON file")
-    parser.add_argument("--processes", nargs="+", default=sorted(DEFAULT_TARGET_PROCS), help="Target process names")
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--input_path",
+        required=True,
+        help="Single trace file or directory of independent JSONL traces",
+    )
+    parser.add_argument("--out_tokens_path", required=True)
+    parser.add_argument("--out_vocab_path", required=True)
+    parser.add_argument(
+        "--processes", nargs="+", help="Optional case-insensitive EDR process filters"
+    )
+    parser.add_argument("--seed", type=int, default=42)
     args = parser.parse_args()
-
-    input_path = args.input_path
-    out_tokens_path = args.out_tokens_path
-    out_vocab_path = args.out_vocab_path
-    target_procs = {p.lower() for p in args.processes}
-
-    print(f"[INFO] Input file:  {input_path}")
-    print(f"[INFO] Output files: {out_tokens_path}, {out_vocab_path}")
-    print(f"[INFO] Target processes: {', '.join(sorted(target_procs))}")
-    print("-" * 60)
-
-    events = read_events(input_path, target_procs)
-    if not events:
-        print("No events found for target processes. Check input file or --processes.")
-        sys.exit(0)
-
-
-    token_seq = build_token_sequence(events)
-    token_seqs = [token_seq]
-
-    vocab = build_vocab(token_seqs)
-
-    with open(out_tokens_path, "w", encoding="utf-8") as f:
-        for seq in token_seqs:
-            f.write(json.dumps(seq, ensure_ascii=False) + "\n")
-
-
-    with open(out_vocab_path, "w", encoding="utf-8") as f:
-        json.dump(vocab, f, ensure_ascii=False, indent=2)
-
-    print(f"[OK] events={len(events)} tokens={len(token_seq)} vocab_size={len(vocab)}")
-    print(f"[OK] Written files: {out_tokens_path}, {out_vocab_path}")
-    print("[SAMPLE TOKENS]", token_seq[:40])
+    path = Path(args.input_path)
+    files = sorted(path.rglob("*.jsonl")) if path.is_dir() else [path]
+    grouped = defaultdict(list)
+    for file in files:
+        for record in read_records(file):
+            execution_id = str(
+                record.get(
+                    "ExecutionID",
+                    file.relative_to(path).as_posix() if path.is_dir() else file.stem,
+                )
+            )
+            grouped[execution_id].append(record)
+    split = split_executions(grouped, args.seed)
+    names = {process_name(name) for name in args.processes} if args.processes else None
+    rows = []
+    for execution_id, records in sorted(grouped.items()):
+        tokens = [
+            event.function
+            for event in events_from_records(records)
+            if names is None or event.process in names
+        ]
+        if not tokens:
+            raise ValueError(f"No EDR API events in execution {execution_id}")
+        rows.append(
+            {
+                "execution_id": execution_id,
+                "split": split[execution_id],
+                "tokens": tokens,
+            }
+        )
+    vocabulary = build_vocab(
+        row["tokens"] for row in rows if row["split"] == "discovery"
+    )
+    write_jsonl(args.out_tokens_path, rows)
+    write_json(args.out_vocab_path, vocabulary)
 
 
 if __name__ == "__main__":
