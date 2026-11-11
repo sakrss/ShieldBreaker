@@ -4,8 +4,6 @@ Differential characterization of endpoint-security runtime behavior. The analysi
 unit is a recurrent **behavior–anomaly temporal co-occurrence**, not an inferred
 vendor detection rule or a persistent cross-execution response identity.
 
-This implementation aligns the methods, parameters and workflows with the paper.
-Reproducing its historical numerical result cells is outside the alignment scope.
 
 ## Install
 
